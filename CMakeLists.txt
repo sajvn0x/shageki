@@ -53,6 +53,7 @@ include_directories(src)
 
 add_executable(shageki
 	src/main.c
+	src/vulkan.c
 )
 
 target_link_libraries(shageki glfw vulkan cglm m)
