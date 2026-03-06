@@ -1,10 +1,12 @@
 #ifndef VULKAN_CONTEXT_H
 #define VULKAN_CONTEXT_H
 
-#include <xcb/xcb.h>
-#include <vulkan/vulkan.h>
-#include <vulkan/vulkan_xcb.h>
 #include <stdint.h>
+#include <vulkan/vulkan.h>
+// clang-format off
+#include <xcb/xcb.h>
+#include <vulkan/vulkan_xcb.h>
+// clang-format on
 
 typedef struct Vertex {
     float pos[2];
@@ -23,7 +25,7 @@ typedef struct VulkanContext {
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
     VkFormat swapchain_format;
-    VkColorSpaceKHR swapchain_color_space;   // added
+    VkColorSpaceKHR swapchain_color_space;
     VkExtent2D swapchain_extent;
     VkImageView* swapchain_image_views;
     uint32_t swapchain_image_count;
