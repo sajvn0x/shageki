@@ -5,6 +5,9 @@
 #include <string.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <cglm/affine.h>
+#include <cglm/cam.h>
+#include <cglm/cglm.h>
 
 #include "vulkan_context.h"
 
@@ -37,7 +40,7 @@ static char* read_file(const char* filename, size_t* size) {
     return data;
 }
 
-// Create shader module – now takes device parameter
+// Create shader module – takes device parameter
 static VkShaderModule create_shader_module(VkDevice device,
                                            const char* spv_path) {
     size_t code_size;
@@ -250,7 +253,7 @@ VkResult create_swapchain(VulkanContext* ctx, GLFWwindow* window) {
     ci.surface = ctx->surface;
     ci.minImageCount = image_count;
     ci.imageFormat = ctx->swapchain_format;
-    ci.imageColorSpace = ctx->swapchain_color_space;  // use stored color space
+    ci.imageColorSpace = ctx->swapchain_color_space;
     ci.imageExtent = ctx->swapchain_extent;
     ci.imageArrayLayers = 1;
     ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -292,29 +295,58 @@ VkResult create_image_views(VulkanContext* ctx) {
 }
 
 VkResult create_render_pass(VulkanContext* ctx) {
-    VkAttachmentDescription color_att = {0};
-    color_att.format = ctx->swapchain_format;
-    color_att.samples = VK_SAMPLE_COUNT_1_BIT;
-    color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    color_att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription attachments[2] = {0};
+
+    // Colour attachment
+    attachments[0].format = ctx->swapchain_format;
+    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    // Depth attachment
+    attachments[1].format = VK_FORMAT_D32_SFLOAT;
+    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[1].finalLayout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference color_ref = {
         0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkAttachmentReference depth_ref = {
+        1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
     VkSubpassDescription subpass = {0};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_ref;
+    subpass.pDepthStencilAttachment = &depth_ref;
 
-    VkRenderPassCreateInfo ci = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    ci.attachmentCount = 1;
-    ci.pAttachments = &color_att;
-    ci.subpassCount = 1;
-    ci.pSubpasses = &subpass;
+    VkRenderPassCreateInfo rp_ci = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    rp_ci.attachmentCount = 2;
+    rp_ci.pAttachments = attachments;
+    rp_ci.subpassCount = 1;
+    rp_ci.pSubpasses = &subpass;
 
-    return vkCreateRenderPass(ctx->device, &ci, NULL, &ctx->render_pass);
+    return vkCreateRenderPass(ctx->device, &rp_ci, NULL, &ctx->render_pass);
+}
+
+VkResult create_descriptor_set_layout(VulkanContext* ctx) {
+    VkDescriptorSetLayoutBinding binding = {0};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo ci = {
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    ci.bindingCount = 1;
+    ci.pBindings = &binding;
+    return vkCreateDescriptorSetLayout(ctx->device, &ci, NULL,
+                                       &ctx->descriptor_set_layout);
 }
 
 VkResult create_graphics_pipeline(VulkanContext* ctx, const char* vert_spv,
@@ -332,7 +364,7 @@ VkResult create_graphics_pipeline(VulkanContext* ctx, const char* vert_spv,
     VkVertexInputBindingDescription binding_desc = {
         0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription attr_descs[2] = {
-        {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, pos)},
+        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)},
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)}};
     VkPipelineVertexInputStateCreateInfo vertex_input = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -362,8 +394,7 @@ VkResult create_graphics_pipeline(VulkanContext* ctx, const char* vert_spv,
     VkPipelineRasterizationStateCreateInfo rasterizer = {
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.cullMode =
-        VK_CULL_MODE_NONE;  // change to VK_CULL_MODE_NONE for testing
+    rasterizer.cullMode = VK_CULL_MODE_NONE;  // test
     rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
     rasterizer.lineWidth = 1.0f;
 
@@ -380,8 +411,16 @@ VkResult create_graphics_pipeline(VulkanContext* ctx, const char* vert_spv,
     blend.attachmentCount = 1;
     blend.pAttachments = &blend_att;
 
+    VkPipelineDepthStencilStateCreateInfo depth_stencil = {
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthWriteEnable = VK_TRUE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+
     VkPipelineLayoutCreateInfo layout_ci = {
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout_ci.setLayoutCount = 1;
+    layout_ci.pSetLayouts = &ctx->descriptor_set_layout;
     VkResult res = vkCreatePipelineLayout(ctx->device, &layout_ci, NULL,
                                           &ctx->pipeline_layout);
     if (res != VK_SUCCESS) return res;
@@ -396,6 +435,7 @@ VkResult create_graphics_pipeline(VulkanContext* ctx, const char* vert_spv,
     pipeline_ci.pRasterizationState = &rasterizer;
     pipeline_ci.pMultisampleState = &multisample;
     pipeline_ci.pColorBlendState = &blend;
+    pipeline_ci.pDepthStencilState = &depth_stencil;
     pipeline_ci.layout = ctx->pipeline_layout;
     pipeline_ci.renderPass = ctx->render_pass;
     pipeline_ci.subpass = 0;
@@ -413,16 +453,18 @@ VkResult create_framebuffers(VulkanContext* ctx) {
     ctx->framebuffers =
         malloc(ctx->swapchain_image_count * sizeof(VkFramebuffer));
     for (uint32_t i = 0; i < ctx->swapchain_image_count; i++) {
-        VkFramebufferCreateInfo ci = {
+        VkImageView attachments[2] = {ctx->swapchain_image_views[i],
+                                      ctx->depth_image_view};
+        VkFramebufferCreateInfo fb_ci = {
             VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        ci.renderPass = ctx->render_pass;
-        ci.attachmentCount = 1;
-        ci.pAttachments = &ctx->swapchain_image_views[i];
-        ci.width = ctx->swapchain_extent.width;
-        ci.height = ctx->swapchain_extent.height;
-        ci.layers = 1;
-        VkResult res =
-            vkCreateFramebuffer(ctx->device, &ci, NULL, &ctx->framebuffers[i]);
+        fb_ci.renderPass = ctx->render_pass;
+        fb_ci.attachmentCount = 2;
+        fb_ci.pAttachments = attachments;
+        fb_ci.width = ctx->swapchain_extent.width;
+        fb_ci.height = ctx->swapchain_extent.height;
+        fb_ci.layers = 1;
+        VkResult res = vkCreateFramebuffer(ctx->device, &fb_ci, NULL,
+                                           &ctx->framebuffers[i]);
         if (res != VK_SUCCESS) return res;
     }
     return VK_SUCCESS;
@@ -433,68 +475,6 @@ VkResult create_command_pool(VulkanContext* ctx) {
     ci.queueFamilyIndex = ctx->graphics_family;
     ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     return vkCreateCommandPool(ctx->device, &ci, NULL, &ctx->command_pool);
-}
-
-VkResult create_command_buffers(VulkanContext* ctx) {
-    ctx->command_buffers =
-        malloc(ctx->swapchain_image_count * sizeof(VkCommandBuffer));
-    VkCommandBufferAllocateInfo ci = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    ci.commandPool = ctx->command_pool;
-    ci.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    ci.commandBufferCount = ctx->swapchain_image_count;
-    VkResult res =
-        vkAllocateCommandBuffers(ctx->device, &ci, ctx->command_buffers);
-    if (res != VK_SUCCESS) return res;
-
-    for (uint32_t i = 0; i < ctx->swapchain_image_count; i++) {
-        VkCommandBufferBeginInfo begin = {
-            VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-        begin.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-        vkBeginCommandBuffer(ctx->command_buffers[i], &begin);
-
-        VkClearValue clear_color = {0.2f, 0.2f, 0.8f, 1.0f};  // bright blue
-        VkRenderPassBeginInfo rp_begin = {
-            VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-        rp_begin.renderPass = ctx->render_pass;
-        rp_begin.framebuffer = ctx->framebuffers[i];
-        rp_begin.renderArea.extent = ctx->swapchain_extent;
-        rp_begin.clearValueCount = 1;
-        rp_begin.pClearValues = &clear_color;
-
-        vkCmdBeginRenderPass(ctx->command_buffers[i], &rp_begin,
-                             VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(ctx->command_buffers[i],
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          ctx->graphics_pipeline);
-        // Bind vertex buffer if used
-        VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(ctx->command_buffers[i], 0, 1,
-                               &ctx->vertex_buffer, &offset);
-        vkCmdDraw(ctx->command_buffers[i], 3, 1, 0, 0);
-        vkCmdEndRenderPass(ctx->command_buffers[i]);
-
-        vkEndCommandBuffer(ctx->command_buffers[i]);
-    }
-    return VK_SUCCESS;
-}
-
-VkResult create_sync_objects(VulkanContext* ctx) {
-    VkSemaphoreCreateInfo sem_ci = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    VkFenceCreateInfo fence_ci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    VkResult res1 = vkCreateSemaphore(ctx->device, &sem_ci, NULL,
-                                      &ctx->image_available_semaphore);
-    VkResult res2 = vkCreateSemaphore(ctx->device, &sem_ci, NULL,
-                                      &ctx->render_finished_semaphore);
-    VkResult res3 =
-        vkCreateFence(ctx->device, &fence_ci, NULL, &ctx->in_flight_fence);
-
-    if (res1 != VK_SUCCESS || res2 != VK_SUCCESS || res3 != VK_SUCCESS) {
-        return VK_ERROR_INITIALIZATION_FAILED;
-    }
-    return VK_SUCCESS;
 }
 
 VkResult create_vertex_buffer(VulkanContext* ctx, Vertex* vertices,
@@ -538,6 +518,250 @@ VkResult create_vertex_buffer(VulkanContext* ctx, Vertex* vertices,
     return VK_SUCCESS;
 }
 
+VkResult create_index_buffer(VulkanContext* ctx, uint16_t* indices,
+                             uint32_t index_count) {
+    VkBufferCreateInfo ci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    ci.size = sizeof(uint16_t) * index_count;
+    ci.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VK_CHECK(vkCreateBuffer(ctx->device, &ci, NULL, &ctx->index_buffer));
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(ctx->device, ctx->index_buffer, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = mem_reqs.size;
+
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(ctx->physical_device, &mem_props);
+    uint32_t mem_type = UINT32_MAX;
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++) {
+        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags &
+             (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))) {
+            mem_type = i;
+            break;
+        }
+    }
+    if (mem_type == UINT32_MAX) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    alloc.memoryTypeIndex = mem_type;
+
+    VK_CHECK(vkAllocateMemory(ctx->device, &alloc, NULL, &ctx->index_memory));
+    VK_CHECK(vkBindBufferMemory(ctx->device, ctx->index_buffer,
+                                ctx->index_memory, 0));
+
+    void* data;
+    vkMapMemory(ctx->device, ctx->index_memory, 0, ci.size, 0, &data);
+    memcpy(data, indices, ci.size);
+    vkUnmapMemory(ctx->device, ctx->index_memory);
+
+    return VK_SUCCESS;
+}
+
+VkResult create_depth_resources(VulkanContext* ctx) {
+    VkFormat depth_format = VK_FORMAT_D32_SFLOAT;
+
+    VkImageCreateInfo image_ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    image_ci.imageType = VK_IMAGE_TYPE_2D;
+    image_ci.extent.width = ctx->swapchain_extent.width;
+    image_ci.extent.height = ctx->swapchain_extent.height;
+    image_ci.extent.depth = 1;
+    image_ci.mipLevels = 1;
+    image_ci.arrayLayers = 1;
+    image_ci.format = depth_format;
+    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VK_CHECK(vkCreateImage(ctx->device, &image_ci, NULL, &ctx->depth_image));
+
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(ctx->device, ctx->depth_image, &mem_reqs);
+    VkMemoryAllocateInfo alloc = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = mem_reqs.size;
+
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(ctx->physical_device, &mem_props);
+    uint32_t mem_type = UINT32_MAX;
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++) {
+        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags &
+             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+            mem_type = i;
+            break;
+        }
+    }
+    if (mem_type == UINT32_MAX) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    alloc.memoryTypeIndex = mem_type;
+    VK_CHECK(vkAllocateMemory(ctx->device, &alloc, NULL, &ctx->depth_memory));
+    VK_CHECK(
+        vkBindImageMemory(ctx->device, ctx->depth_image, ctx->depth_memory, 0));
+
+    VkImageViewCreateInfo view_ci = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view_ci.image = ctx->depth_image;
+    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_ci.format = depth_format;
+    view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    view_ci.subresourceRange.levelCount = 1;
+    view_ci.subresourceRange.layerCount = 1;
+    VK_CHECK(
+        vkCreateImageView(ctx->device, &view_ci, NULL, &ctx->depth_image_view));
+
+    return VK_SUCCESS;
+}
+
+VkResult create_uniform_buffer(VulkanContext* ctx) {
+    VkBufferCreateInfo ci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    ci.size = sizeof(UniformBufferObject);
+    ci.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VK_CHECK(vkCreateBuffer(ctx->device, &ci, NULL, &ctx->uniform_buffer));
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(ctx->device, ctx->uniform_buffer, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = mem_reqs.size;
+
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(ctx->physical_device, &mem_props);
+    uint32_t mem_type = UINT32_MAX;
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++) {
+        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags &
+             (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))) {
+            mem_type = i;
+            break;
+        }
+    }
+    if (mem_type == UINT32_MAX) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    alloc.memoryTypeIndex = mem_type;
+
+    VK_CHECK(vkAllocateMemory(ctx->device, &alloc, NULL, &ctx->uniform_memory));
+    VK_CHECK(vkBindBufferMemory(ctx->device, ctx->uniform_buffer,
+                                ctx->uniform_memory, 0));
+
+    // Map persistently
+    vkMapMemory(ctx->device, ctx->uniform_memory, 0,
+                sizeof(UniformBufferObject), 0, &ctx->uniform_mapped);
+
+    return VK_SUCCESS;
+}
+
+VkResult create_descriptor_pool(VulkanContext* ctx) {
+    VkDescriptorPoolSize pool_size = {0};
+    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_size.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo ci = {
+        VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    ci.maxSets = 1;
+    ci.poolSizeCount = 1;
+    ci.pPoolSizes = &pool_size;
+    return vkCreateDescriptorPool(ctx->device, &ci, NULL,
+                                  &ctx->descriptor_pool);
+}
+
+VkResult allocate_descriptor_set(VulkanContext* ctx) {
+    VkDescriptorSetAllocateInfo ci = {
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    ci.descriptorPool = ctx->descriptor_pool;
+    ci.descriptorSetCount = 1;
+    ci.pSetLayouts = &ctx->descriptor_set_layout;
+    return vkAllocateDescriptorSets(ctx->device, &ci, &ctx->descriptor_set);
+}
+
+VkResult update_descriptor_set(VulkanContext* ctx) {
+    VkDescriptorBufferInfo buffer_info = {0};
+    buffer_info.buffer = ctx->uniform_buffer;
+    buffer_info.offset = 0;
+    buffer_info.range = sizeof(UniformBufferObject);
+
+    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = ctx->descriptor_set;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write.pBufferInfo = &buffer_info;
+
+    vkUpdateDescriptorSets(ctx->device, 1, &write, 0, NULL);
+    return VK_SUCCESS;
+}
+
+VkResult create_command_buffers(VulkanContext* ctx) {
+    ctx->command_buffers =
+        malloc(ctx->swapchain_image_count * sizeof(VkCommandBuffer));
+    VkCommandBufferAllocateInfo ci = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ci.commandPool = ctx->command_pool;
+    ci.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ci.commandBufferCount = ctx->swapchain_image_count;
+    VkResult res =
+        vkAllocateCommandBuffers(ctx->device, &ci, ctx->command_buffers);
+    if (res != VK_SUCCESS) return res;
+
+    for (uint32_t i = 0; i < ctx->swapchain_image_count; i++) {
+        VkCommandBufferBeginInfo begin = {
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        begin.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        vkBeginCommandBuffer(ctx->command_buffers[i], &begin);
+
+        VkClearValue clear_values[2];
+        clear_values[0].color = (VkClearColorValue){0.2f, 0.2f, 0.8f, 1.0f};
+        clear_values[1].depthStencil = (VkClearDepthStencilValue){1.0f, 0};
+
+        VkRenderPassBeginInfo rp_begin = {
+            VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        rp_begin.renderPass = ctx->render_pass;
+        rp_begin.framebuffer = ctx->framebuffers[i];
+        rp_begin.renderArea.extent = ctx->swapchain_extent;
+        rp_begin.clearValueCount = 2;
+        rp_begin.pClearValues = clear_values;
+
+        vkCmdBeginRenderPass(ctx->command_buffers[i], &rp_begin,
+                             VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(ctx->command_buffers[i],
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          ctx->graphics_pipeline);
+        vkCmdBindDescriptorSets(
+            ctx->command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
+            ctx->pipeline_layout, 0, 1, &ctx->descriptor_set, 0, NULL);
+
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(ctx->command_buffers[i], 0, 1,
+                               &ctx->vertex_buffer, &offset);
+        vkCmdBindIndexBuffer(ctx->command_buffers[i], ctx->index_buffer, 0,
+                             VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(ctx->command_buffers[i], 36, 1, 0, 0, 0);
+
+        vkCmdEndRenderPass(ctx->command_buffers[i]);
+
+        vkEndCommandBuffer(ctx->command_buffers[i]);
+    }
+    return VK_SUCCESS;
+}
+
+VkResult create_sync_objects(VulkanContext* ctx) {
+    VkSemaphoreCreateInfo sem_ci = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    VkFenceCreateInfo fence_ci = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    fence_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    VkResult res1 = vkCreateSemaphore(ctx->device, &sem_ci, NULL,
+                                      &ctx->image_available_semaphore);
+    VkResult res2 = vkCreateSemaphore(ctx->device, &sem_ci, NULL,
+                                      &ctx->render_finished_semaphore);
+    VkResult res3 =
+        vkCreateFence(ctx->device, &fence_ci, NULL, &ctx->in_flight_fence);
+
+    if (res1 != VK_SUCCESS || res2 != VK_SUCCESS || res3 != VK_SUCCESS) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    return VK_SUCCESS;
+}
+
 void cleanup_vulkan(VulkanContext* ctx) {
     if (ctx->device == VK_NULL_HANDLE) return;
 
@@ -555,6 +779,30 @@ void cleanup_vulkan(VulkanContext* ctx) {
     if (ctx->vertex_buffer)
         vkDestroyBuffer(ctx->device, ctx->vertex_buffer, NULL);
     if (ctx->vertex_memory) vkFreeMemory(ctx->device, ctx->vertex_memory, NULL);
+
+    // Index buffer
+    if (ctx->index_buffer)
+        vkDestroyBuffer(ctx->device, ctx->index_buffer, NULL);
+    if (ctx->index_memory) vkFreeMemory(ctx->device, ctx->index_memory, NULL);
+
+    // Uniform buffer
+    if (ctx->uniform_buffer)
+        vkDestroyBuffer(ctx->device, ctx->uniform_buffer, NULL);
+    if (ctx->uniform_memory)
+        vkFreeMemory(ctx->device, ctx->uniform_memory, NULL);
+
+    // Descriptor pool and layout
+    if (ctx->descriptor_pool)
+        vkDestroyDescriptorPool(ctx->device, ctx->descriptor_pool, NULL);
+    if (ctx->descriptor_set_layout)
+        vkDestroyDescriptorSetLayout(ctx->device, ctx->descriptor_set_layout,
+                                     NULL);
+
+    // Depth resources
+    if (ctx->depth_image_view)
+        vkDestroyImageView(ctx->device, ctx->depth_image_view, NULL);
+    if (ctx->depth_image) vkDestroyImage(ctx->device, ctx->depth_image, NULL);
+    if (ctx->depth_memory) vkFreeMemory(ctx->device, ctx->depth_memory, NULL);
 
     // Command buffers and pool
     if (ctx->command_pool) {
@@ -628,9 +876,24 @@ int main() {
 
     VulkanContext ctx = {0};
 
-    Vertex vertices[3] = {{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-                          {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-                          {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+    // Cube vertices (8 vertices, 3D positions + colors)
+    Vertex cube_vertices[] = {{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                              {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                              {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
+                              {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}},
+                              {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}},
+                              {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},
+                              {{0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+                              {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}}};
+
+    uint16_t cube_indices[] = {
+        0, 1, 2, 2, 3, 0,  // front
+        1, 5, 6, 6, 2, 1,  // right
+        5, 4, 7, 7, 6, 5,  // back
+        4, 0, 3, 3, 7, 4,  // left
+        3, 2, 6, 6, 7, 3,  // top
+        4, 5, 1, 1, 0, 4   // bottom
+    };
 
     VK_CHECK(create_instance(&ctx));
     VK_CHECK(setup_debug_messenger(&ctx));
@@ -639,14 +902,31 @@ int main() {
     VK_CHECK(create_logical_device(&ctx));
     VK_CHECK(create_swapchain(&ctx, window));
     VK_CHECK(create_image_views(&ctx));
+    VK_CHECK(create_depth_resources(&ctx));
     VK_CHECK(create_render_pass(&ctx));
+
+    // Descriptor set layout must be created before pipeline
+    VK_CHECK(create_descriptor_set_layout(&ctx));
+
     VK_CHECK(
         create_graphics_pipeline(&ctx, "shader.vert.spv", "shader.frag.spv"));
     VK_CHECK(create_framebuffers(&ctx));
     VK_CHECK(create_command_pool(&ctx));
-    VK_CHECK(create_vertex_buffer(&ctx, vertices, 3));
+
+    // Create buffers
+    VK_CHECK(create_vertex_buffer(&ctx, cube_vertices, 8));
+    VK_CHECK(create_index_buffer(&ctx, cube_indices, 36));
+    VK_CHECK(create_uniform_buffer(&ctx));
+
+    // Descriptor pool and set
+    VK_CHECK(create_descriptor_pool(&ctx));
+    VK_CHECK(allocate_descriptor_set(&ctx));
+    VK_CHECK(update_descriptor_set(&ctx));
+
     VK_CHECK(create_command_buffers(&ctx));
     VK_CHECK(create_sync_objects(&ctx));
+
+    float angle = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -660,9 +940,28 @@ int main() {
             ctx.device, ctx.swapchain, UINT64_MAX,
             ctx.image_available_semaphore, VK_NULL_HANDLE, &image_index);
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            // Handle swapchain out-of-date, etc. (simplified: break)
             break;
         }
+
+        // Update uniform buffer
+        angle += 0.01f;
+        UniformBufferObject ubo = {0};
+        glm_mat4_identity(ubo.model);
+        glm_rotate_y(ubo.model, angle, ubo.model);
+
+        vec3 eye = {2.0f, 2.0f, 2.0f};
+        vec3 center = {0.0f, 0.0f, 0.0f};
+        vec3 up = {0.0f, 1.0f, 0.0f};
+        glm_lookat(eye, center, up, ubo.view);
+
+        glm_perspective(
+            glm_rad(45.0f),
+            (float)ctx.swapchain_extent.width / ctx.swapchain_extent.height,
+            0.1f, 10.0f, ubo.proj);
+        // Vulkan clip space has Y inverted
+        ubo.proj[1][1] *= -1;
+
+        memcpy(ctx.uniform_mapped, &ubo, sizeof(ubo));
 
         VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submit.waitSemaphoreCount = 1;

@@ -7,11 +7,18 @@
 #include <xcb/xcb.h>
 #include <vulkan/vulkan_xcb.h>
 // clang-format on
+#include <cglm/cglm.h>
 
 typedef struct Vertex {
-    float pos[2];
+    float pos[3];
     float color[3];
 } Vertex;
+
+typedef struct {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+} UniformBufferObject;
 
 typedef struct VulkanContext {
     VkInstance instance;
@@ -40,6 +47,20 @@ typedef struct VulkanContext {
     VkFence in_flight_fence;
     VkBuffer vertex_buffer;
     VkDeviceMemory vertex_memory;
+    // depth resources
+    VkImage depth_image;
+    VkDeviceMemory depth_memory;
+    VkImageView depth_image_view;
+    // index buffer
+    VkBuffer index_buffer;
+    VkDeviceMemory index_memory;
+    // uniform buffer
+    VkBuffer uniform_buffer;
+    VkDeviceMemory uniform_memory;
+    void* uniform_mapped;
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkDescriptorPool descriptor_pool;
+    VkDescriptorSet descriptor_set;
 } VulkanContext;
 
 #endif

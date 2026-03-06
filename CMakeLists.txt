@@ -55,5 +55,5 @@ add_executable(shageki
 	src/main.c
 )
 
-target_link_libraries(shageki glfw vulkan)
+target_link_libraries(shageki glfw vulkan cglm m)
 
