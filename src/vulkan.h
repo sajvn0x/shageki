@@ -16,7 +16,6 @@
         }                                                                      \
     } while (0)
 
-static char* read_file(const char* filename, size_t* size);
 static VkShaderModule create_shader_module(VkDevice device,
                                            const char* spv_path);
 VkResult create_instance(VulkanContext* ctx);

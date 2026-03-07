@@ -10,27 +10,17 @@
 #include <cglm/cglm.h>
 
 #include "vulkan.h"
+#include "core/fs.h"
 
 const char* APP_NAME = "Shageki";
 const char* APP_ENGINE = "Shageki";
 
-// Helper: read file into memory
-char* read_file(const char* filename, size_t* size) {
-    FILE* f = fopen(filename, "rb");
-    if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    *size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* data = malloc(*size);
-    fread(data, 1, *size, f);
-    fclose(f);
-    return data;
-}
-
 static VkShaderModule create_shader_module(VkDevice device,
                                            const char* spv_path) {
+
     size_t code_size;
-    char* code = read_file(spv_path, &code_size);
+	char* code = read_file(spv_path, &code_size);
+
     if (!code) {
         fprintf(stderr, "Failed to read shader %s\n", spv_path);
         exit(1);
