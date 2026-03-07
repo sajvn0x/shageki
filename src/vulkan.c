@@ -89,7 +89,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 VkResult setup_debug_messenger(VulkanContext* ctx) {
     VkDebugUtilsMessengerCreateInfoEXT ci = {
         .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+        .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
         .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
@@ -97,13 +99,13 @@ VkResult setup_debug_messenger(VulkanContext* ctx) {
         .pfnUserCallback = debug_callback,
         .pUserData = NULL};
 
-    PFN_vkCreateDebugUtilsMessengerEXT createDebug =
+    PFN_vkCreateDebugUtilsMessengerEXT create_debug =
         (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
             ctx->instance, "vkCreateDebugUtilsMessengerEXT");
-    if (!createDebug) {
+    if (!create_debug) {
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
-    return createDebug(ctx->instance, &ci, NULL, &ctx->debug_messenger);
+    return create_debug(ctx->instance, &ci, NULL, &ctx->debug_messenger);
 }
 
 VkResult create_surface(VulkanContext* ctx, GLFWwindow* window) {
