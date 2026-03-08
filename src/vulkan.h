@@ -36,6 +36,12 @@ VkResult create_vertex_buffer(VulkanContext* ctx, Vertex* vertices,
                               uint32_t vertex_count);
 VkResult create_index_buffer(VulkanContext* ctx, uint16_t* indices,
                              uint32_t index_count);
+
+// texture
+VkResult create_texture_image(VulkanContext* ctx, const char* filename);
+VkResult create_texture_image_view(VulkanContext* ctx);
+VkResult create_texture_sampler(VulkanContext* ctx);
+
 VkResult create_depth_resources(VulkanContext* ctx);
 VkResult create_uniform_buffer(VulkanContext* ctx);
 VkResult create_descriptor_pool(VulkanContext* ctx);

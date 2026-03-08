@@ -16,23 +16,45 @@ int main() {
 
     VulkanContext ctx = {0};
 
-    // Cube vertices (8 vertices, 3D positions + colors)
-    Vertex cube_vertices[] = {{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-                              {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-                              {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
-                              {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}},
-                              {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}},
-                              {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},
-                              {{0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
-                              {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}}};
+    Vertex cube_vertices[] = {
+        // Front face
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        // Back face
+        {{0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        // Left face
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        // Right face
+        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        // Top face
+        {{-0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        // Bottom face
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}}};
 
     uint16_t cube_indices[] = {
-        0, 1, 2, 2, 3, 0,  // front
-        1, 5, 6, 6, 2, 1,  // right
-        5, 4, 7, 7, 6, 5,  // back
-        4, 0, 3, 3, 7, 4,  // left
-        3, 2, 6, 6, 7, 3,  // top
-        4, 5, 1, 1, 0, 4   // bottom
+        0,  1,  2,  2,  3,  0,   // front
+        4,  5,  6,  6,  7,  4,   // back
+        8,  9,  10, 10, 11, 8,   // left
+        12, 13, 14, 14, 15, 12,  // right
+        16, 17, 18, 18, 19, 16,  // top
+        20, 21, 22, 22, 23, 20   // bottom
     };
 
     VK_CHECK(create_instance(&ctx));
@@ -54,12 +76,15 @@ int main() {
     VK_CHECK(create_command_pool(&ctx));
 
     // Create buffers
-    VK_CHECK(create_vertex_buffer(&ctx, cube_vertices, 8));
+    VK_CHECK(create_vertex_buffer(&ctx, cube_vertices, 216));
     VK_CHECK(create_index_buffer(&ctx, cube_indices, 36));
     VK_CHECK(create_uniform_buffer(&ctx));
 
     // Descriptor pool and set
     VK_CHECK(create_descriptor_pool(&ctx));
+    VK_CHECK(create_texture_image(&ctx, "../assets/Texturelabs_Stone_138L.jpg"));
+    VK_CHECK(create_texture_image_view(&ctx));
+    VK_CHECK(create_texture_sampler(&ctx));
     VK_CHECK(allocate_descriptor_set(&ctx));
     VK_CHECK(update_descriptor_set(&ctx));
 

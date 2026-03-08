@@ -3,23 +3,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "vulkan_context.h"
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <cglm/affine.h>
 #include <cglm/cam.h>
 #include <cglm/cglm.h>
-
-#include "vulkan.h"
+#define STB_IMAGE_IMPLEMENTATION
 #include "core/fs.h"
+#include "stb_image/stb_image.h"
+#include "vulkan.h"
 
 const char* APP_NAME = "Shageki";
 const char* APP_ENGINE = "Shageki";
 
 static VkShaderModule create_shader_module(VkDevice device,
                                            const char* spv_path) {
-
     size_t code_size;
-	char* code = read_file(spv_path, &code_size);
+    char* code = read_file(spv_path, &code_size);
 
     if (!code) {
         fprintf(stderr, "Failed to read shader %s\n", spv_path);
@@ -37,6 +39,20 @@ static VkShaderModule create_shader_module(VkDevice device,
         exit(1);
     }
     return module;
+}
+
+uint32_t find_memory_type(VulkanContext* ctx, uint32_t type_filter,
+                          VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(ctx->physical_device, &mem_props);
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++) {
+        if ((type_filter & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags & properties) ==
+                properties) {
+            return i;
+        }
+    }
+    return UINT32_MAX;
 }
 
 VkResult create_instance(VulkanContext* ctx) {
@@ -312,17 +328,194 @@ VkResult create_render_pass(VulkanContext* ctx) {
     return vkCreateRenderPass(ctx->device, &rp_ci, NULL, &ctx->render_pass);
 }
 
+VkCommandBuffer begin_single_time_commands(VulkanContext* ctx) {
+    VkCommandBufferAllocateInfo alloc = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandPool = ctx->command_pool;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd;
+    vkAllocateCommandBuffers(ctx->device, &alloc, &cmd);
+
+    VkCommandBufferBeginInfo begin = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+    return cmd;
+}
+
+void end_single_time_commands(VulkanContext* ctx, VkCommandBuffer cmd) {
+    vkEndCommandBuffer(cmd);
+    VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vkQueueSubmit(ctx->graphics_queue, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(ctx->graphics_queue);
+    vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &cmd);
+}
+
+VkResult create_texture_image(VulkanContext* ctx, const char* filename) {
+    int tex_width, tex_height, tex_channels;
+    stbi_uc* pixels = stbi_load(filename, &tex_width, &tex_height,
+                                &tex_channels, STBI_rgb_alpha);
+
+    if (!pixels) {
+        fprintf(stderr, "Failed to load texture image %s\n", filename);
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    VkDeviceSize image_size = tex_width * tex_height * 4;
+
+    // create staging buffer
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_memory;
+    VkBufferCreateInfo buffer_ci = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = image_size,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
+    VK_CHECK(vkCreateBuffer(ctx->device, &buffer_ci, NULL, &staging_buffer));
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(ctx->device, staging_buffer, &mem_reqs);
+    VkMemoryAllocateInfo alloc = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_reqs.size,
+        .memoryTypeIndex =
+            find_memory_type(ctx, mem_reqs.memoryTypeBits,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+    };
+    VK_CHECK(vkAllocateMemory(ctx->device, &alloc, NULL, &staging_memory));
+    VK_CHECK(
+        vkBindBufferMemory(ctx->device, staging_buffer, staging_memory, 0));
+
+    void* data;
+    vkMapMemory(ctx->device, staging_memory, 0, image_size, 0, &data);
+    memcpy(data, pixels, image_size);
+    vkUnmapMemory(ctx->device, staging_memory);
+    stbi_image_free(pixels);
+
+    VkImageCreateInfo image_ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    image_ci.imageType = VK_IMAGE_TYPE_2D;
+    image_ci.extent.width = tex_width;
+    image_ci.extent.height = tex_height;
+    image_ci.extent.depth = 1;
+    image_ci.mipLevels = 1;
+    image_ci.arrayLayers = 1;
+    image_ci.format = VK_FORMAT_R8G8B8A8_SRGB;  // typical format
+    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_ci.usage =
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VK_CHECK(vkCreateImage(ctx->device, &image_ci, NULL, &ctx->texture_image));
+
+    vkGetImageMemoryRequirements(ctx->device, ctx->texture_image, &mem_reqs);
+    alloc.allocationSize = mem_reqs.size;
+    alloc.memoryTypeIndex = find_memory_type(
+        ctx, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    VK_CHECK(vkAllocateMemory(ctx->device, &alloc, NULL, &ctx->texture_memory));
+    VK_CHECK(vkBindImageMemory(ctx->device, ctx->texture_image,
+                               ctx->texture_memory, 0));
+
+    // Transition the image to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    VkCommandBuffer cmd = begin_single_time_commands(ctx);
+    VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = ctx->texture_image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
+                         &barrier);
+    end_single_time_commands(ctx, cmd);
+
+    // Copy staging buffer to image
+    VkBufferImageCopy region = {0};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent.width = tex_width;
+    region.imageExtent.height = tex_height;
+    region.imageExtent.depth = 1;
+
+    cmd = begin_single_time_commands(ctx);
+    vkCmdCopyBufferToImage(cmd, staging_buffer, ctx->texture_image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    end_single_time_commands(ctx, cmd);
+
+    // Transition to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL for sampling
+    cmd = begin_single_time_commands(ctx);
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0,
+                         NULL, 1, &barrier);
+    end_single_time_commands(ctx, cmd);
+
+    // Clean up staging resources
+    vkDestroyBuffer(ctx->device, staging_buffer, NULL);
+    vkFreeMemory(ctx->device, staging_memory, NULL);
+
+    return VK_SUCCESS;
+}
+
+VkResult create_texture_image_view(VulkanContext* ctx) {
+    VkImageViewCreateInfo view_ci = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view_ci.image = ctx->texture_image;
+    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_ci.subresourceRange.levelCount = 1;
+    view_ci.subresourceRange.layerCount = 1;
+    return vkCreateImageView(ctx->device, &view_ci, NULL,
+                             &ctx->texture_image_view);
+}
+
+VkResult create_texture_sampler(VulkanContext* ctx) {
+    VkSamplerCreateInfo sampler_ci = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sampler_ci.magFilter = VK_FILTER_LINEAR;
+    sampler_ci.minFilter = VK_FILTER_LINEAR;
+    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_ci.anisotropyEnable = VK_FALSE;
+    sampler_ci.maxAnisotropy = 1.0f;
+    sampler_ci.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_ci.unnormalizedCoordinates = VK_FALSE;
+    sampler_ci.compareEnable = VK_FALSE;
+    sampler_ci.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_ci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_ci.mipLodBias = 0.0f;
+    sampler_ci.minLod = 0.0f;
+    sampler_ci.maxLod = 0.0f;
+    return vkCreateSampler(ctx->device, &sampler_ci, NULL,
+                           &ctx->texture_sampler);
+}
+
 VkResult create_descriptor_set_layout(VulkanContext* ctx) {
-    VkDescriptorSetLayoutBinding binding = {0};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutBinding bindings[2] = {0};
+    // binding 0: Uniform buffer
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo ci = {
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    ci.bindingCount = 1;
-    ci.pBindings = &binding;
+    ci.bindingCount = 2;
+    ci.pBindings = bindings;
     return vkCreateDescriptorSetLayout(ctx->device, &ci, NULL,
                                        &ctx->descriptor_set_layout);
 }
@@ -341,14 +534,16 @@ VkResult create_graphics_pipeline(VulkanContext* ctx, const char* vert_spv,
     // Vertex input (using Vertex structure)
     VkVertexInputBindingDescription binding_desc = {
         0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attr_descs[2] = {
+    VkVertexInputAttributeDescription attr_descs[3] = {
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)},
-        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)}};
+        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)},
+        {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, tex_coord)}};
+
     VkPipelineVertexInputStateCreateInfo vertex_input = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vertex_input.vertexBindingDescriptionCount = 1;
     vertex_input.pVertexBindingDescriptions = &binding_desc;
-    vertex_input.vertexAttributeDescriptionCount = 2;
+    vertex_input.vertexAttributeDescriptionCount = 3;
     vertex_input.pVertexAttributeDescriptions = attr_descs;
 
     VkPipelineInputAssemblyStateCreateInfo input_asm = {
@@ -630,15 +825,17 @@ VkResult create_uniform_buffer(VulkanContext* ctx) {
 }
 
 VkResult create_descriptor_pool(VulkanContext* ctx) {
-    VkDescriptorPoolSize pool_size = {0};
-    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = 1;
+    VkDescriptorPoolSize pool_sizes[2] = {0};
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_sizes[0].descriptorCount = 1;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo ci = {
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     ci.maxSets = 1;
-    ci.poolSizeCount = 1;
-    ci.pPoolSizes = &pool_size;
+    ci.poolSizeCount = 2;
+    ci.pPoolSizes = pool_sizes;
     return vkCreateDescriptorPool(ctx->device, &ci, NULL,
                                   &ctx->descriptor_pool);
 }
@@ -658,14 +855,27 @@ VkResult update_descriptor_set(VulkanContext* ctx) {
     buffer_info.offset = 0;
     buffer_info.range = sizeof(UniformBufferObject);
 
-    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = ctx->descriptor_set;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write.pBufferInfo = &buffer_info;
+    VkDescriptorImageInfo image_info = {0};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageView = ctx->texture_image_view;
+    image_info.sampler = ctx->texture_sampler;
 
-    vkUpdateDescriptorSets(ctx->device, 1, &write, 0, NULL);
+    VkWriteDescriptorSet writes[2] = {0};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = ctx->descriptor_set;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &buffer_info;
+
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = ctx->descriptor_set;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].pImageInfo = &image_info;
+
+    vkUpdateDescriptorSets(ctx->device, 2, writes, 0, NULL);
     return VK_SUCCESS;
 }
 
@@ -768,6 +978,12 @@ void cleanup_vulkan(VulkanContext* ctx) {
         vkDestroyBuffer(ctx->device, ctx->uniform_buffer, NULL);
     if (ctx->uniform_memory)
         vkFreeMemory(ctx->device, ctx->uniform_memory, NULL);
+
+    // Texture
+    vkDestroySampler(ctx->device, ctx->texture_sampler, NULL);
+    vkDestroyImageView(ctx->device, ctx->texture_image_view, NULL);
+    vkDestroyImage(ctx->device, ctx->texture_image, NULL);
+    vkFreeMemory(ctx->device, ctx->texture_memory, NULL);
 
     // Descriptor pool and layout
     if (ctx->descriptor_pool)

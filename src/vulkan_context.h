@@ -10,8 +10,9 @@
 #include <cglm/cglm.h>
 
 typedef struct Vertex {
-    float pos[3];
-    float color[3];
+	vec3 pos;
+	vec3 color;
+	vec2 tex_coord;
 } Vertex;
 
 typedef struct {
@@ -61,6 +62,11 @@ typedef struct VulkanContext {
     VkDescriptorSetLayout descriptor_set_layout;
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_set;
+	// texture
+	VkImage texture_image;
+	VkDeviceMemory texture_memory;
+	VkImageView texture_image_view;
+	VkSampler texture_sampler;
 } VulkanContext;
 
 #endif
