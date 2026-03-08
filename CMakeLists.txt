@@ -50,6 +50,7 @@ add_custom_target(Shaders ALL DEPENDS
 )
 
 include_directories(src)
+include_directories(lib)
 
 add_executable(shageki
 	src/main.c
