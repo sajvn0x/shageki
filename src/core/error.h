@@ -23,7 +23,7 @@ static AppResult vk_to_app_result(VkResult r) {
 #define LOG_INFO(...) fprintf(stdout, "[INFO] " __VA_ARGS__)
 
 #define CHECK_ALLOC(ptr, msg) \
-    if (!(ptr)) {              \
+    if (!(ptr)) {             \
         LOG_ERROR(msg "\n");  \
         return NULL;          \
     }
