@@ -18,6 +18,8 @@ typedef struct {
 } Core;
 
 typedef struct {
+    VkDevice device;
+
     VkSwapchainKHR swapchain;
     VkFormat format;
     VkExtent2D extent;
