@@ -13,4 +13,4 @@ typedef struct {
     bool is_initializing, is_initialized, is_paused;
 } App;
 
-#endif // APP_H
+#endif  // APP_H
