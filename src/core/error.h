@@ -33,7 +33,7 @@ AppResult vk_to_app_result(VkResult r) {
         VkResult err = x;                         \
         if (err != VK_SUCCESS) {                  \
             LOG_ERROR("Vulkan error: %d\n", err); \
-            return err;                           \
+            exit(-1);                             \
         }                                         \
     } while (0)
 
