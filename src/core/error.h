@@ -13,7 +13,7 @@ typedef enum AppResult {
     APP_ERROR_INVALID_STATE
 } AppResult;
 
-AppResult vk_to_app_result(VkResult r) {
+static AppResult vk_to_app_result(VkResult r) {
     if (r == VK_SUCCESS) return APP_SUCCESS;
     return APP_ERROR_VULKAN;
 }
@@ -23,7 +23,7 @@ AppResult vk_to_app_result(VkResult r) {
 #define LOG_INFO(...) fprintf(stdout, "[INFO] " __VA_ARGS__)
 
 #define CHECK_ALLOC(ptr, msg) \
-    if ((ptr)) {              \
+    if (!(ptr)) {              \
         LOG_ERROR(msg "\n");  \
         return NULL;          \
     }
