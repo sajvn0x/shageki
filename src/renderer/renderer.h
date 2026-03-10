@@ -21,6 +21,7 @@ typedef struct {
     VkSwapchainKHR swapchain;
     VkFormat format;
     VkExtent2D extent;
+    VkColorSpaceKHR color_space;
     uint32_t image_count;
     VkImage* images;
     VkImageView* image_views;
@@ -40,9 +41,9 @@ typedef struct {
 } FrameData;
 
 typedef struct {
-    Core core;
-    Swapchain swapchain;
-    FrameData frame;
+    Core* core;
+    Swapchain* swapchain;
+    FrameData* frame;
 } Renderer;
 
 // core
@@ -50,15 +51,15 @@ Core* core_init(GLFWwindow* window);
 void core_destroy(Core* core);
 
 // swapchain
-AppResult swapchain_create();
-void swapchain_destroy();
+AppResult swapchain_init(Renderer* renderer, GLFWwindow* window);
+void swapchain_destroy(Swapchain* swapchain);
 
 // frame data
 AppResult frame_data_create();
 void frame_data_destroy();
 
 // renderer
-AppResult renderer_create();
-void renderer_destroy();
+Renderer* renderer_init(GLFWwindow* window);
+void renderer_destroy(Renderer* renderer);
 
 #endif  // RENDERER_H
