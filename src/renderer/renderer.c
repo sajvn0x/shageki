@@ -33,8 +33,20 @@ Renderer* renderer_init(GLFWwindow* window) {
         return NULL;
     }
 
+    // Frame data initialization
+    if (frame_data_create(renderer) != APP_SUCCESS) {
+        LOG_ERROR("RENDERER: frame data initialization failed\n");
+        swapchain_destroy(renderer->swapchain);
+        free(renderer->swapchain);
+        core_destroy(renderer->core);
+        free(renderer->core);
+        free(renderer);
+        return NULL;
+    }
+
     assert(renderer->core);
     assert(renderer->swapchain);
+    assert(renderer->frame);
 
     LOG_INFO("RENDERER: initialized\n");
     return renderer;
@@ -43,6 +55,12 @@ Renderer* renderer_init(GLFWwindow* window) {
 void renderer_destroy(Renderer* renderer) {
     if (!renderer) return;
     LOG_INFO("RENDERER: destructing\n");
+
+    if (renderer->frame) {
+        frame_data_destroy(renderer->frame, renderer->core->device);
+        free(renderer->frame);
+        renderer->frame = NULL;
+    }
 
     if (renderer->swapchain) {
         swapchain_destroy(renderer->swapchain);

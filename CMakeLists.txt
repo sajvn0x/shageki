@@ -63,6 +63,7 @@ add_executable(shageki
 	src/renderer/core.c
 	src/renderer/swapchain.c
 	src/renderer/renderer.c
+	src/renderer/frame_data.c
 )
 
 target_link_libraries(shageki glfw vulkan cglm m)

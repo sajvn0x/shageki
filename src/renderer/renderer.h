@@ -57,8 +57,8 @@ AppResult swapchain_init(Renderer* renderer, GLFWwindow* window);
 void swapchain_destroy(Swapchain* swapchain);
 
 // frame data
-AppResult frame_data_create();
-void frame_data_destroy();
+AppResult frame_data_create(Renderer* renderer);
+void frame_data_destroy(FrameData* frame_data, VkDevice device);
 
 // renderer
 Renderer* renderer_init(GLFWwindow* window);
