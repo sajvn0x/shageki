@@ -54,16 +54,18 @@ include_directories(lib)
 
 add_executable(shageki
 	src/main.c
-	src/vulkan.c
 
 	# core
 	src/core/fs.c
 
 	# renderer
+	src/renderer/renderer.c
 	src/renderer/core.c
 	src/renderer/swapchain.c
-	src/renderer/renderer.c
 	src/renderer/frame_data.c
+	src/renderer/buffer.c
+	src/renderer/mesh.c
+	src/renderer/material.c
 )
 
 target_link_libraries(shageki glfw vulkan cglm m)
