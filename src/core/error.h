@@ -10,7 +10,8 @@ typedef enum AppResult {
     APP_ERROR_VULKAN,
     APP_ERROR_MEMORY,
     APP_ERROR_IO,
-    APP_ERROR_INVALID_STATE
+    APP_ERROR_INVALID_STATE,
+    APP_ERROR_INVALID_PARAM
 } AppResult;
 
 static AppResult vk_to_app_result(VkResult r) {
