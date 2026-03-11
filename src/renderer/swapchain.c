@@ -1,4 +1,3 @@
-#include <string.h>
 #include <vulkan/vulkan_core.h>
 
 #include "core/error.h"
@@ -12,16 +11,14 @@ VkResult swapchain_framebuffers_init(Swapchain* swapchain);
 AppResult swapchain_init(Renderer* renderer, GLFWwindow* window) {
     LOG_INFO("RENDERER_SWAPCHAIN: initializing\n");
 
-    if (!renderer->core)
-        LOG_ERROR(
-            "RENDERER_SWAPCHAIN: dependent objects are not properly "
-            "initialized\n");
+    if (!renderer->core) {
+        LOG_ERROR("RENDERER_SWAPCHAIN: core not initialized\n");
+        return vk_to_app_result(VK_ERROR_INITIALIZATION_FAILED);
+    }
 
     Core* core = renderer->core;
     if (!core->gpu || !core->device || !core->surface) {
-        LOG_ERROR(
-            "RENDERER_SWAPCHAIN: dependent objects are not properly "
-            "initialized\n");
+        LOG_ERROR("RENDERER_SWAPCHAIN: core missing required Vulkan objects\n");
         return vk_to_app_result(VK_ERROR_INITIALIZATION_FAILED);
     }
 
@@ -30,45 +27,94 @@ AppResult swapchain_init(Renderer* renderer, GLFWwindow* window) {
         LOG_ERROR("RENDERER_SWAPCHAIN: memory allocation failed\n");
         return APP_ERROR_MEMORY;
     }
-    swapchain = memset(swapchain, 0, sizeof(Swapchain));
     swapchain->device = core->device;
 
-    vk_to_app_result(swapchain_create(core, swapchain, window));
-    vk_to_app_result(render_pass_init(swapchain));
-    vk_to_app_result(swapchain_image_views_init(swapchain));
-    vk_to_app_result(swapchain_framebuffers_init(swapchain));
+    VkResult res = swapchain_create(core, swapchain, window);
+    if (res != VK_SUCCESS) {
+        LOG_ERROR(
+            "RENDERER_SWAPCHAIN: swapchain creation failed (VkResult %d)\n",
+            res);
+        free(swapchain);
+        return vk_to_app_result(res);
+    }
+
+    res = render_pass_init(swapchain);
+    if (res != VK_SUCCESS) {
+        LOG_ERROR(
+            "RENDERER_SWAPCHAIN: render pass creation failed (VkResult %d)\n",
+            res);
+        vkDestroySwapchainKHR(core->device, swapchain->swapchain, ALLOCATOR);
+        free(swapchain);
+        return vk_to_app_result(res);
+    }
+
+    res = swapchain_image_views_init(swapchain);
+    if (res != VK_SUCCESS) {
+        LOG_ERROR(
+            "RENDERER_SWAPCHAIN: image views creation failed (VkResult %d)\n",
+            res);
+        vkDestroyRenderPass(core->device, swapchain->render_pass, ALLOCATOR);
+        vkDestroySwapchainKHR(core->device, swapchain->swapchain, ALLOCATOR);
+        free(swapchain);
+        return vk_to_app_result(res);
+    }
+
+    res = swapchain_framebuffers_init(swapchain);
+    if (res != VK_SUCCESS) {
+        LOG_ERROR(
+            "RENDERER_SWAPCHAIN: framebuffers creation failed (VkResult %d)\n",
+            res);
+        for (uint32_t i = 0; i < swapchain->image_count; ++i) {
+            vkDestroyImageView(core->device, swapchain->image_views[i],
+                               ALLOCATOR);
+        }
+        free(swapchain->image_views);
+        vkDestroyRenderPass(core->device, swapchain->render_pass, ALLOCATOR);
+        vkDestroySwapchainKHR(core->device, swapchain->swapchain, ALLOCATOR);
+        free(swapchain);
+        return vk_to_app_result(res);
+    }
 
     renderer->swapchain = swapchain;
-
     LOG_INFO("RENDERER_SWAPCHAIN: initialized\n");
     return APP_SUCCESS;
 }
 
 void swapchain_destroy(Swapchain* swapchain) {
+    if (!swapchain) return;
     LOG_INFO("RENDERER_SWAPCHAIN: destructing\n");
 
     if (swapchain->framebuffers) {
         for (uint32_t i = 0; i < swapchain->image_count; ++i) {
-            vkDestroyFramebuffer(swapchain->device, swapchain->framebuffers[i],
-                                 ALLOCATOR);
+            if (swapchain->framebuffers[i])
+                vkDestroyFramebuffer(swapchain->device,
+                                     swapchain->framebuffers[i], ALLOCATOR);
         }
         free(swapchain->framebuffers);
+        swapchain->framebuffers = NULL;
     }
 
     if (swapchain->image_views) {
         for (uint32_t i = 0; i < swapchain->image_count; ++i) {
-            vkDestroyImageView(swapchain->device, swapchain->image_views[i],
-                               ALLOCATOR);
+            if (swapchain->image_views[i])
+                vkDestroyImageView(swapchain->device, swapchain->image_views[i],
+                                   ALLOCATOR);
         }
         free(swapchain->image_views);
+        swapchain->image_views = NULL;
     }
 
     if (swapchain->render_pass) {
         vkDestroyRenderPass(swapchain->device, swapchain->render_pass,
                             ALLOCATOR);
+        swapchain->render_pass = VK_NULL_HANDLE;
     }
 
-    vkDestroySwapchainKHR(swapchain->device, swapchain->swapchain, ALLOCATOR);
+    if (swapchain->swapchain) {
+        vkDestroySwapchainKHR(swapchain->device, swapchain->swapchain,
+                              ALLOCATOR);
+        swapchain->swapchain = VK_NULL_HANDLE;
+    }
 
     LOG_INFO("RENDERER_SWAPCHAIN: destructed\n");
 }
@@ -93,6 +139,10 @@ VkResult swapchain_create(Core* core, Swapchain* swapchain,
                                          &format_count, NULL);
     VkSurfaceFormatKHR* formats =
         malloc(format_count * sizeof(VkSurfaceFormatKHR));
+    if (!formats) {
+        LOG_ERROR("SWAPCHAIN: out of memory\n");
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     vkGetPhysicalDeviceSurfaceFormatsKHR(core->gpu, core->surface,
                                          &format_count, formats);
 
@@ -108,13 +158,18 @@ VkResult swapchain_create(Core* core, Swapchain* swapchain,
     swapchain->color_space = chosen_format.colorSpace;
     free(formats);
 
-    // Present mode
+    // Choose present mode (prefer MAILBOX, fallback to FIFO)
     uint32_t mode_count;
     vkGetPhysicalDeviceSurfacePresentModesKHR(core->gpu, core->surface,
                                               &mode_count, NULL);
     VkPresentModeKHR* modes = malloc(mode_count * sizeof(VkPresentModeKHR));
+    if (!modes) {
+        LOG_ERROR("SWAPCHAIN: out of memory\n");
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     vkGetPhysicalDeviceSurfacePresentModesKHR(core->gpu, core->surface,
                                               &mode_count, modes);
+
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
     for (uint32_t i = 0; i < mode_count; i++) {
         if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
@@ -124,7 +179,7 @@ VkResult swapchain_create(Core* core, Swapchain* swapchain,
     }
     free(modes);
 
-    // Extent
+    // Determine swap extent
     if (caps.currentExtent.width != 0xFFFFFFFF) {
         swapchain->extent = caps.currentExtent;
     } else {
@@ -151,14 +206,18 @@ VkResult swapchain_create(Core* core, Swapchain* swapchain,
         .preTransform = caps.currentTransform,
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         .presentMode = present_mode,
-        .clipped = VK_TRUE};
+        .clipped = VK_TRUE,
+    };
 
-    VkResult swapchain_result = vkCreateSwapchainKHR(
-        core->device, &ci, ALLOCATOR, &swapchain->swapchain);
-    if (swapchain_result != VK_SUCCESS) return VK_ERROR_INITIALIZATION_FAILED;
-
-    LOG_INFO("SWAPCHAIN: initialized\n");
-    return VK_SUCCESS;
+    VkResult res = vkCreateSwapchainKHR(core->device, &ci, ALLOCATOR,
+                                        &swapchain->swapchain);
+    if (res != VK_SUCCESS) {
+        LOG_ERROR("SWAPCHAIN: vkCreateSwapchainKHR failed (VkResult %d)\n",
+                  res);
+    } else {
+        LOG_INFO("SWAPCHAIN: Vulkan swapchain created\n");
+    }
+    return res;
 }
 
 VkResult render_pass_init(Swapchain* swapchain) {
@@ -199,26 +258,37 @@ VkResult render_pass_init(Swapchain* swapchain) {
         .subpassCount = 1,
         .pSubpasses = &subpass};
 
-    VkResult render_pass_result = vkCreateRenderPass(
-        swapchain->device, &ci, ALLOCATOR, &swapchain->render_pass);
-    if (render_pass_result == VK_SUCCESS)
+    VkResult res = vkCreateRenderPass(swapchain->device, &ci, ALLOCATOR,
+                                      &swapchain->render_pass);
+    if (res == VK_SUCCESS)
         LOG_INFO("RENDER_PASS: initialized\n");
-
-    return render_pass_result;
+    else
+        LOG_ERROR("RENDER_PASS: creation failed (VkResult %d)\n", res);
+    return res;
 }
 
 VkResult swapchain_image_views_init(Swapchain* swapchain) {
-    LOG_INFO("SWAPCHAIN: image views creation\n");
+    LOG_INFO("SWAPCHAIN: creating image views\n");
 
     uint32_t image_count;
     vkGetSwapchainImagesKHR(swapchain->device, swapchain->swapchain,
                             &image_count, NULL);
     VkImage* images = malloc(image_count * sizeof(VkImage));
+    if (!images) {
+        LOG_ERROR("SWAPCHAIN: out of memory for images\n");
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
     vkGetSwapchainImagesKHR(swapchain->device, swapchain->swapchain,
                             &image_count, images);
 
     swapchain->image_count = image_count;
     swapchain->image_views = malloc(sizeof(VkImageView) * image_count);
+    if (!swapchain->image_views) {
+        LOG_ERROR("SWAPCHAIN: out of memory for image views\n");
+        free(images);
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
 
     for (uint32_t i = 0; i < image_count; i++) {
         VkImageViewCreateInfo ci = {
@@ -228,32 +298,47 @@ VkResult swapchain_image_views_init(Swapchain* swapchain) {
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
             .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .subresourceRange.levelCount = 1,
-            .subresourceRange.layerCount = 1};
+            .subresourceRange.layerCount = 1,
+        };
         VkResult res = vkCreateImageView(swapchain->device, &ci, ALLOCATOR,
                                          &swapchain->image_views[i]);
         if (res != VK_SUCCESS) {
+            LOG_ERROR(
+                "SWAPCHAIN: failed to create image view %u (VkResult %d)\n", i,
+                res);
+            // Clean up already created views
+            for (uint32_t j = 0; j < i; j++) {
+                vkDestroyImageView(swapchain->device, swapchain->image_views[j],
+                                   ALLOCATOR);
+            }
+            free(swapchain->image_views);
+            swapchain->image_views = NULL;
             free(images);
             return res;
         }
     }
-    free(images);
 
+    free(images);
     LOG_INFO("SWAPCHAIN: image views created\n");
     return VK_SUCCESS;
 }
 
 VkResult swapchain_framebuffers_init(Swapchain* swapchain) {
-    LOG_INFO("SWAPCHAIN: framebuffers creation\n");
+    LOG_INFO("SWAPCHAIN: creating framebuffers\n");
 
     if (!swapchain || !swapchain->render_pass || !swapchain->image_views) {
         LOG_ERROR(
-            "SWAPCHAIN_FRAMEBUFFERS: dependent objects are not properly "
-            "initialized\n");
+            "SWAPCHAIN_FRAMEBUFFERS: missing render pass or image views\n");
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
     swapchain->framebuffers =
         malloc(sizeof(VkFramebuffer) * swapchain->image_count);
+    if (!swapchain->framebuffers) {
+        LOG_ERROR("SWAPCHAIN_FRAMEBUFFERS: out of memory\n");
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
     for (uint32_t i = 0; i < swapchain->image_count; ++i) {
         VkImageView attachments[1] = {swapchain->image_views[i]};
         VkFramebufferCreateInfo ci = {
@@ -267,7 +352,19 @@ VkResult swapchain_framebuffers_init(Swapchain* swapchain) {
         };
         VkResult res = vkCreateFramebuffer(swapchain->device, &ci, ALLOCATOR,
                                            &swapchain->framebuffers[i]);
-        if (res != VK_SUCCESS) return res;
+        if (res != VK_SUCCESS) {
+            LOG_ERROR(
+                "SWAPCHAIN_FRAMEBUFFERS: failed to create framebuffer %u "
+                "(VkResult %d)\n",
+                i, res);
+            for (uint32_t j = 0; j < i; j++) {
+                vkDestroyFramebuffer(swapchain->device,
+                                     swapchain->framebuffers[j], ALLOCATOR);
+            }
+            free(swapchain->framebuffers);
+            swapchain->framebuffers = NULL;
+            return res;
+        }
     }
 
     LOG_INFO("SWAPCHAIN: framebuffers created\n");
