@@ -1,6 +1,8 @@
 #ifndef CORE_DEFINES_H
 #define CORE_DEFINES_H
 
+#define KNULL 0
+
 // types
 typedef unsigned char u8;
 typedef unsigned short u16;
