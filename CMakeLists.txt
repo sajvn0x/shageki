@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 project(shageki)
 
 set(CMAKE_C_STANDARD 11)
+add_compile_definitions(_DEBUG=1)
 
 find_package(glfw3 REQUIRED)
 find_package(Threads REQUIRED)
