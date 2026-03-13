@@ -59,6 +59,7 @@ add_executable(shageki
 	# core
 	src/core/fs.c
 	src/core/logger.c
+	src/core/memory.c
 
 	# renderer
 	src/renderer/renderer.c
