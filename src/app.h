@@ -1,7 +1,7 @@
 #ifndef APP_H
 #define APP_H
 
-#include <stdbool.h>
+#include "core/defines.h"
 
 static const char* APP_NAME = "Shageki";
 static const char* APP_ENGINE = "Shageki Engine";
