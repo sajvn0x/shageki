@@ -5,10 +5,12 @@
 
 bool swapchain_create(VulkanContext* context, GLFWwindow* window);
 bool swapchain_image_views(VulkanContext* context);
+bool swapchain_framebuffers(VulkanContext* context);
 
 bool vulkan_swapchain_initialize(VulkanContext* context, GLFWwindow* window) {
     if (!swapchain_create(context, window)) return false;
     if (!swapchain_image_views(context)) return false;
+    if (!swapchain_framebuffers(context)) return false;
 
     LOG_TRACE("vulkan swapchain initialized")
     return true;
@@ -16,6 +18,18 @@ bool vulkan_swapchain_initialize(VulkanContext* context, GLFWwindow* window) {
 
 void vulkan_swapchain_destroy(VulkanContext* context) {
     LOG_TRACE("vulkan swapchain destructing");
+
+    if (context->swapchain.framebuffers) {
+        for (u32 i = 0; i < context->swapchain.image_count; ++i) {
+            if (context->swapchain.framebuffers[i])
+                vkDestroyFramebuffer(context->device.device,
+                                     context->swapchain.framebuffers[i],
+                                     context->allocator);
+        }
+        memory_free(context->swapchain.framebuffers,
+                    sizeof(VkFramebuffer) * context->swapchain.image_count,
+                    MEMORY_TAG_VULKAN);
+    }
 
     if (context->swapchain.image_views) {
         for (u32 i = 0; i < context->swapchain.image_count; ++i) {
@@ -117,6 +131,34 @@ bool swapchain_image_views(VulkanContext* context) {
                               &context->swapchain.image_views[i]);
         if (result != VK_SUCCESS) {
             LOG_ERROR("Failed to create Swapchain ImageView");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool swapchain_framebuffers(VulkanContext* context) {
+    context->swapchain.framebuffers =
+        memory_allocate(sizeof(VkFramebuffer) * context->swapchain.image_count,
+                        MEMORY_TAG_VULKAN);
+
+    for (u32 i = 0; i < context->swapchain.image_count; ++i) {
+        VkImageView attachments[1] = {context->swapchain.image_views[i]};
+        VkFramebufferCreateInfo ci = {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = context->device.render_pass,
+            .attachmentCount = 1,
+            .pAttachments = attachments,
+            .width = context->swapchain.extent.width,
+            .height = context->swapchain.extent.height,
+            .layers = 1,
+        };
+        VkResult result =
+            vkCreateFramebuffer(context->device.device, &ci, context->allocator,
+                                &context->swapchain.framebuffers[i]);
+        if (result != VK_SUCCESS) {
+            LOG_ERROR("Failed to create Swapchain Framebuffers");
             return false;
         }
     }
