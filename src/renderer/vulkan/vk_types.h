@@ -1,0 +1,59 @@
+#ifndef RENDERER_VULKAN_H
+#define RENDERER_VULKAN_H
+
+#include <vulkan/vulkan_core.h>
+
+#include "core/defines.h"
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
+// clang-format off
+#if defined(PLATFORM_WINDOWS)
+#elif defined(PLATFORM_LINUX)
+#include <xcb/xcb.h>
+#include <vulkan/vulkan_xcb.h>
+#else
+#endif
+// clang-format on
+
+typedef struct {
+    VkSurfaceCapabilitiesKHR capabilities;
+    u32 format_count;
+    VkSurfaceFormatKHR* formats;
+    u32 present_mode_count;
+    VkPresentModeKHR* present_modes;
+} VulkanSwapchainSupportInfo;
+
+typedef struct {
+    VkInstance instance;
+#if TGT_DEBUG
+    VkDebugUtilsMessengerEXT debug_messenger;
+#endif  // TGT_DEBUG
+    VkPhysicalDevice gpu;
+    VkDevice device;
+    VkSurfaceKHR surface;
+    VulkanSwapchainSupportInfo swapchain_support;
+
+    i32 graphics_queue_index;
+    i32 present_queue_index;
+    VkQueue graphics_queue;
+    VkQueue present_queue;
+
+    VkCommandPool graphics_command_pool;
+
+    VkFormat depth_format;
+} VulkanDevice;
+
+typedef struct {
+    VkSwapchainKHR handle;
+    u32 image_count;
+} VulkanSwapchain;
+
+typedef struct {
+    VulkanDevice device;
+    VkAllocationCallbacks* allocator;
+    VulkanSwapchain swapchain;
+} VulkanContext;
+
+#endif  // RENDERER_VULKAN_H

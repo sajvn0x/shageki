@@ -1,18 +1,19 @@
-#include "renderer/renderer.h"
+#include <GLFW/glfw3.h>
+
 #include "app.h"
+#include "core/logger.h"
 
 int main(void) {
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, APP_NAME, NULL, NULL);
-
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
+	App app;
+	if(!app_initialize(&app)) {
+		LOG_ERROR("Failed to initialize the App");
+		return -1;
 	}
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
+	// main loop
+	app_run_loop(&app);
+
+	app_shutdown(app);
 
 	return 0;
 }
