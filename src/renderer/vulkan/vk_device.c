@@ -9,6 +9,7 @@ bool debug_messenger_setup(VulkanContext* context);
 bool surface_create(VulkanContext* context, GLFWwindow* window);
 bool physical_device_pick(VulkanContext* context);
 bool device_create(VulkanContext* context);
+bool render_pass_create(VulkanContext* context);
 bool query_swapchain_suppport(VulkanContext* context);
 
 bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
@@ -22,6 +23,7 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     if (!physical_device_pick(context)) return false;
     if (!device_create(context)) return false;
     if (!query_swapchain_suppport(context)) return false;
+    if (!render_pass_create(context)) return false;
 
     LOG_TRACE("Vulkan device initialized");
     return true;
@@ -29,6 +31,10 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
 
 void vulkan_device_destroy(VulkanContext* context) {
     LOG_TRACE("Vulkan device destructing");
+
+    if (context->device.render_pass)
+        vkDestroyRenderPass(context->device.device, context->device.render_pass,
+                            context->allocator);
 
     if (context->device.device)
         vkDestroyDevice(context->device.device, context->allocator);
@@ -264,6 +270,53 @@ bool device_create(VulkanContext* context) {
     vkGetDeviceQueue(context->device.device,
                      context->device.present_queue_index, 0,
                      &context->device.present_queue);
+
+    return true;
+}
+
+bool render_pass_create(VulkanContext* context) {
+    VkAttachmentDescription attachments[2] = {0};
+
+    // color attachment
+    attachments[0].format = context->device.swapchain_support.format;
+    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    // depth attachment
+    attachments[1].format = VK_FORMAT_D32_SFLOAT;
+    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[1].finalLayout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference color_ref = {
+        0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+
+    VkSubpassDescription subpass = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_ref,
+    };
+
+    VkRenderPassCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = attachments,
+        .subpassCount = 1,
+        .pSubpasses = &subpass};
+
+    VkResult result =
+        vkCreateRenderPass(context->device.device, &ci, context->allocator,
+                           &context->device.render_pass);
+    if (result != VK_SUCCESS) {
+        LOG_ERROR("Failed to create render pass");
+        return false;
+    }
 
     return true;
 }

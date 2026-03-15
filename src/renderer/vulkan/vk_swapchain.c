@@ -121,6 +121,5 @@ bool swapchain_image_views(VulkanContext* context) {
         }
     }
 
-    LOG_INFO("Swapchain Image and Image Views are created");
     return true;
 }

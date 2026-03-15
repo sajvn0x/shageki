@@ -43,6 +43,8 @@ typedef struct {
     VkQueue graphics_queue;
     VkQueue present_queue;
 
+    VkRenderPass render_pass;
+
     VkCommandPool graphics_command_pool;
 
     VkFormat depth_format;
