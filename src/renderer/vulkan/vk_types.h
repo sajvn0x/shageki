@@ -19,10 +19,13 @@
 
 typedef struct {
     VkSurfaceCapabilitiesKHR capabilities;
-    u32 format_count;
-    VkSurfaceFormatKHR* formats;
-    u32 present_mode_count;
-    VkPresentModeKHR* present_modes;
+    VkFormat format;
+    VkColorSpaceKHR color_space;
+    VkPresentModeKHR present_mode;
+    // u32 format_count;
+    // VkSurfaceFormatKHR* formats;
+    // u32 present_mode_count;
+    // VkPresentModeKHR* present_modes;
 } VulkanSwapchainSupportInfo;
 
 typedef struct {

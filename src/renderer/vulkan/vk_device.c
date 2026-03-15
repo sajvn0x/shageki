@@ -9,6 +9,7 @@ bool debug_messenger_setup(VulkanContext* context);
 bool surface_create(VulkanContext* context, GLFWwindow* window);
 bool physical_device_pick(VulkanContext* context);
 bool device_create(VulkanContext* context);
+bool query_swapchain_suppport(VulkanContext* context);
 
 bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     LOG_TRACE("Vulkan device initializing");
@@ -20,6 +21,7 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     if (!surface_create(context, window)) return false;
     if (!physical_device_pick(context)) return false;
     if (!device_create(context)) return false;
+    if (!query_swapchain_suppport(context)) return false;
 
     LOG_TRACE("Vulkan device initialized");
     return true;
@@ -262,6 +264,65 @@ bool device_create(VulkanContext* context) {
     vkGetDeviceQueue(context->device.device,
                      context->device.present_queue_index, 0,
                      &context->device.present_queue);
+
+    return true;
+}
+
+bool query_swapchain_suppport(VulkanContext* context) {
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        context->device.gpu, context->device.surface,
+        &context->device.swapchain_support.capabilities);
+
+    // surface format
+    u32 format_count;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(
+        context->device.gpu, context->device.surface, &format_count, NULL);
+    VkSurfaceFormatKHR* formats = memory_allocate(
+        format_count * sizeof(VkSurfaceFormatKHR), MEMORY_TAG_VULKAN);
+    if (!formats) {
+        LOG_ERROR("Failed to allocate memory for VkSurfaceFormatKHR");
+        return false;
+    }
+    vkGetPhysicalDeviceSurfaceFormatsKHR(
+        context->device.gpu, context->device.surface, &format_count, formats);
+
+    VkSurfaceFormatKHR chosen_format = formats[0];
+    for (u32 i = 0; i < format_count; i++) {
+        if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
+            formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            chosen_format = formats[i];
+            break;
+        }
+    }
+
+    context->device.swapchain_support.format = chosen_format.format;
+    context->device.swapchain_support.color_space = chosen_format.colorSpace;
+    memory_free(formats, format_count * sizeof(VkSurfaceFormatKHR),
+                MEMORY_TAG_VULKAN);
+
+	// present mode
+    u32 mode_count;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(
+        context->device.gpu, context->device.surface, &mode_count, NULL);
+    VkPresentModeKHR* modes = memory_allocate(
+        mode_count * sizeof(VkPresentModeKHR), MEMORY_TAG_VULKAN);
+    if (!modes) {
+        LOG_ERROR("Failed to allocate memory for VkPresentModeKHR");
+        return false;
+    }
+    vkGetPhysicalDeviceSurfacePresentModesKHR(
+        context->device.gpu, context->device.surface, &mode_count, modes);
+    VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+    for (u32 i = 0; i < mode_count; i++) {
+        if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+            present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+            break;
+        }
+    }
+
+    context->device.swapchain_support.present_mode = present_mode;
+    memory_free(modes, format_count * sizeof(VkSurfaceFormatKHR),
+                MEMORY_TAG_VULKAN);
 
     return true;
 }
