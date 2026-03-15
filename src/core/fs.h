@@ -1,8 +1,8 @@
 #ifndef CORE_FS_H
 #define CORE_FS_H
 
-#include <stdio.h>
+#include "core/defines.h"
 
-char* read_file(const char* filename, size_t* size);
+bool read_file(const char* filename, u64* out_size, char** out_data);
 
 #endif  // CORE_FS_H

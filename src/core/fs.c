@@ -1,15 +1,23 @@
 #include "fs.h"
 
-#include <stdlib.h>
+#include <stdio.h>
 
-char* read_file(const char* filename, size_t* size) {
+#include "core/logger.h"
+#include "core/memory.h"
+
+bool read_file(const char* filename, u64* out_size, char** out_data) {
     FILE* f = fopen(filename, "rb");
-    if (!f) return NULL;
+    if (!f) {
+        LOG_ERROR("File not found: %s", filename);
+        return false;
+    };
+
     fseek(f, 0, SEEK_END);
-    *size = ftell(f);
+    *out_size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char* data = malloc(*size);
-    fread(data, 1, *size, f);
+    *out_data = memory_allocate(*out_size, MEMORY_TAG_STRING);
+    fread(*out_data, 1, *out_size, f);
     fclose(f);
-    return data;
+
+    return true;
 }
