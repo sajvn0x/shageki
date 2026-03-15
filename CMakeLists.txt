@@ -65,6 +65,7 @@ add_executable(shageki
 	# renderer
 	src/renderer/vulkan/vulkan_renderer.c
 	src/renderer/vulkan/vk_device.c
+	src/renderer/vulkan/vk_swapchain.c
 )
 
 target_link_libraries(shageki glfw vulkan cglm m)

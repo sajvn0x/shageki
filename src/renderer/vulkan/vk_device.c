@@ -300,7 +300,7 @@ bool query_swapchain_suppport(VulkanContext* context) {
     memory_free(formats, format_count * sizeof(VkSurfaceFormatKHR),
                 MEMORY_TAG_VULKAN);
 
-	// present mode
+    // present mode
     u32 mode_count;
     vkGetPhysicalDeviceSurfacePresentModesKHR(
         context->device.gpu, context->device.surface, &mode_count, NULL);

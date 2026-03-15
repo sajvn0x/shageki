@@ -1,6 +1,7 @@
 #include "core/memory.h"
 #include "renderer/renderer.h"
 #include "vk_device.h"
+#include "vk_swapchain.h"
 #include "vk_types.h"
 
 bool vulkan_renderer_init(RendererState* state, GLFWwindow* window) {
@@ -14,12 +15,17 @@ bool vulkan_renderer_init(RendererState* state, GLFWwindow* window) {
         return false;
     }
 
+    if (!vulkan_swapchain_initialize(context, window)) {
+        return false;
+    }
+
     return true;
 }
 
 void vulkan_renderer_destroy(RendererState state) {
     VulkanContext* context = (VulkanContext*)state.backend_state;
 
+    vulkan_swapchain_destroy(context);
     vulkan_device_destroy(context);
 
     memory_free(state.backend_state, sizeof(VulkanContext), MEMORY_TAG_VULKAN);
