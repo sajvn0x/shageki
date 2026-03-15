@@ -50,8 +50,11 @@ typedef struct {
 
 typedef struct {
     VkSwapchainKHR handle;
-    VkExtent2D extent;
     u32 image_count;
+    VkExtent2D extent;
+    VkImage* images;
+    VkImageView* image_views;
+    VkFramebuffer* framebuffers;
 } VulkanSwapchain;
 
 typedef struct {
