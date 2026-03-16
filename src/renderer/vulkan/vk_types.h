@@ -59,10 +59,12 @@ typedef struct {
     VkFramebuffer* framebuffers;
 } VulkanSwapchain;
 
-typedef struct {
+typedef struct VulkanContext {
     VulkanDevice device;
     VkAllocationCallbacks* allocator;
     VulkanSwapchain swapchain;
+    i32 (*find_memory_index)(struct VulkanContext* context, u32 type_filter,
+                             u32 property_flags);
 } VulkanContext;
 
 #endif  // RENDERER_VULKAN_H
