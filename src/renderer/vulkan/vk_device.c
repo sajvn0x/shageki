@@ -12,6 +12,7 @@ bool device_create(VulkanContext* context);
 bool render_pass_create(VulkanContext* context);
 bool query_swapchain_suppport(VulkanContext* context);
 bool graphics_command_pool(VulkanContext* context);
+bool sync_objects(VulkanContext* context);
 
 bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     LOG_TRACE("Vulkan device initializing");
@@ -26,6 +27,7 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     if (!query_swapchain_suppport(context)) return false;
     if (!render_pass_create(context)) return false;
     if (!graphics_command_pool(context)) return false;
+    if (!sync_objects(context)) return false;
 
     LOG_TRACE("Vulkan device initialized");
     return true;
@@ -33,6 +35,20 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
 
 void vulkan_device_destroy(VulkanContext* context) {
     LOG_TRACE("Vulkan device destructing");
+
+    if (context->device.image_available_semaphore)
+        vkDestroySemaphore(context->device.device,
+                           context->device.image_available_semaphore,
+                           context->allocator);
+
+    if (context->device.render_finished_semaphore)
+        vkDestroySemaphore(context->device.device,
+                           context->device.render_finished_semaphore,
+                           context->allocator);
+
+    if (context->device.in_flight_fence)
+        vkDestroyFence(context->device.device, context->device.in_flight_fence,
+                       context->allocator);
 
     if (context->device.graphics_command_pool)
         vkDestroyCommandPool(context->device.device,
@@ -399,6 +415,40 @@ bool graphics_command_pool(VulkanContext* context) {
 
     if (result != VK_SUCCESS) {
         LOG_ERROR("Failed to create graphics command pool");
+        return false;
+    }
+
+    return true;
+}
+
+bool sync_objects(VulkanContext* context) {
+    VkSemaphoreCreateInfo sem_ci = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    VkFenceCreateInfo fence_ci = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                                  .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+
+    VkResult res =
+        vkCreateSemaphore(context->device.device, &sem_ci, context->allocator,
+                          &context->device.image_available_semaphore);
+
+    if (res != VK_SUCCESS) {
+        LOG_ERROR("failed to create image available semaphore: %d", res);
+        return false;
+    }
+
+    res = vkCreateSemaphore(context->device.device, &sem_ci, context->allocator,
+                            &context->device.render_finished_semaphore);
+
+    if (res != VK_SUCCESS) {
+        LOG_ERROR("failed to create render finished semaphore: %d", res);
+        return false;
+    }
+
+    res = vkCreateFence(context->device.device, &fence_ci, context->allocator,
+                        &context->device.in_flight_fence);
+
+    if (res != VK_SUCCESS) {
+        LOG_ERROR("failed to create in flight fence: %d", res);
         return false;
     }
 

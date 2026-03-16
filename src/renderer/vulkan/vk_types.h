@@ -47,6 +47,10 @@ typedef struct {
 
     VkCommandPool graphics_command_pool;
 
+    // synchrnonization objects
+    VkSemaphore image_available_semaphore, render_finished_semaphore;
+    VkFence in_flight_fence;
+
     VkFormat depth_format;
 } VulkanDevice;
 
