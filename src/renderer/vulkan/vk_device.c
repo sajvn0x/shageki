@@ -11,6 +11,7 @@ bool physical_device_pick(VulkanContext* context);
 bool device_create(VulkanContext* context);
 bool render_pass_create(VulkanContext* context);
 bool query_swapchain_suppport(VulkanContext* context);
+bool graphics_command_pool(VulkanContext* context);
 
 bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     LOG_TRACE("Vulkan device initializing");
@@ -24,6 +25,7 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
     if (!device_create(context)) return false;
     if (!query_swapchain_suppport(context)) return false;
     if (!render_pass_create(context)) return false;
+    if (!graphics_command_pool(context)) return false;
 
     LOG_TRACE("Vulkan device initialized");
     return true;
@@ -31,6 +33,11 @@ bool vulkan_device_create(VulkanContext* context, GLFWwindow* window) {
 
 void vulkan_device_destroy(VulkanContext* context) {
     LOG_TRACE("Vulkan device destructing");
+
+    if (context->device.graphics_command_pool)
+        vkDestroyCommandPool(context->device.device,
+                             context->device.graphics_command_pool,
+                             context->allocator);
 
     if (context->device.render_pass)
         vkDestroyRenderPass(context->device.device, context->device.render_pass,
@@ -376,6 +383,24 @@ bool query_swapchain_suppport(VulkanContext* context) {
     context->device.swapchain_support.present_mode = present_mode;
     memory_free(modes, format_count * sizeof(VkSurfaceFormatKHR),
                 MEMORY_TAG_VULKAN);
+
+    return true;
+}
+
+bool graphics_command_pool(VulkanContext* context) {
+    VkCommandPoolCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .queueFamilyIndex = context->device.graphics_queue_index,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT};
+
+    VkResult result =
+        vkCreateCommandPool(context->device.device, &ci, context->allocator,
+                            &context->device.graphics_command_pool);
+
+    if (result != VK_SUCCESS) {
+        LOG_ERROR("Failed to create graphics command pool");
+        return false;
+    }
 
     return true;
 }
